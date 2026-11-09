@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: # lets you run it manually from the Actions tab
+
+# Cancel an older run if a newer commit is pushed to the same branch
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: self-hosted # your Raspberry Pi runner
+    timeout-minutes: 15
+
+    env:
+      # Only needed so `prisma generate` can load its config during install.
+      # Nothing connects to the database in CI, so a placeholder is fine.
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check formatting
+        run: npx prettier --check .
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+  deploy:
+    needs: build-and-test # only deploy if build + tests passed
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: self-hosted
+    timeout-minutes: 15
+
+    env:
+      APP_DIR: /home/jjimenez/Documents/daylight
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+
+      # The runner service can't see the nvm-installed Node, so set one up here
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Copy code to app directory
+        # Keeps the server's .env (your real secrets) and node_modules in place
+        run: |
+          mkdir -p "$APP_DIR"
+          rsync -a --delete \
+            --exclude .git \
+            --exclude node_modules \
+            --exclude dist \
+            --exclude server/.env \
+            --exclude server/src/generated \
+            ./ "$APP_DIR/"
+
+      - name: Install and build
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          npm ci
+          npm run build
+
+      - name: Restart app
+        run: |
+          sudo systemctl restart daylight
+          sleep 3
+          systemctl is-active daylight
+          curl --fail --silent http://localhost:4000/api/health
