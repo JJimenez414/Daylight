@@ -45,7 +45,7 @@ jobs:
 
   deploy:
     needs: build-and-test # only deploy if build + tests passed
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: self-hosted
     timeout-minutes: 15
 
