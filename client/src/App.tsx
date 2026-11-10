@@ -32,9 +32,16 @@ export function App() {
       </button>
 
       {health && (
-        <p className="text-green-700">
-          ✅ {health.status} — up for {Math.round(health.uptime)}s
-        </p>
+        <div className="text-center">
+          <p className="text-green-700">
+            ✅ API {health.status} — up for {Math.round(health.uptime)}s
+          </p>
+          {health.database === "ok" ? (
+            <p className="text-green-700">✅ Database connected</p>
+          ) : (
+            <p className="text-red-600">❌ Database not reachable — check DATABASE_URL</p>
+          )}
+        </div>
       )}
       {error && <p className="text-red-600">Cannot reach the API. Is the server running?</p>}
     </main>
