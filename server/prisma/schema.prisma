@@ -8,3 +8,69 @@ datasource db {
 }
 
 // Add your models here, then run `npm run db:migrate`
+// Lights the app knows about. Live state (on, brightness, kelvin) comes from the bridge, not from here.
+model lights {
+  id          Int     @id @default(autoincrement())
+  hueId       String  @unique @map("hue_id") // e.g. 4af520dc-1368-4216-9e5d-0ff9db21e014
+  name        String
+  description String?
+  active      Boolean @default(true) // true = the app may control this light, false = ignore it
+
+  routines routines[]
+  override overrides?
+
+  @@map("lights")
+}
+
+enum TriggerType {
+  sun
+  time
+
+  @@map("trigger_type")
+}
+
+enum SunEvent {
+  sunrise
+  sunset
+
+  @@map("sun_event")
+}
+
+// One row per routine: trigger + conditions + action, for one light.
+// CHECK constraints (brightness/kelvin ranges, sun_event/start_time required by trigger) live in the migration SQL.
+model routines {
+  id      Int     @id @default(autoincrement())
+  name    String
+  enabled Boolean @default(true)
+  lightId Int     @map("light_id")
+  light   lights  @relation(fields: [lightId], references: [id], onDelete: Cascade)
+
+  // Trigger
+  triggerType   TriggerType @map("trigger_type")
+  sunEvent      SunEvent?   @map("sun_event") // when triggerType = sun
+  offsetMinutes Int         @default(0) @map("offset_minutes") // -30 = 30 min before, 15 = 15 min after
+
+  // Conditions (null = no condition)
+  maxSunElevation Float?  @map("max_sun_elevation") // only run when the sun is lower than this many degrees
+  startTime       String? @map("start_time") // 'HH:MM', allowed window start
+  endTime         String? @map("end_time") // 'HH:MM', allowed window end (may be past midnight)
+  days            Int     @default(127) // bitmask, Sun=1 Mon=2 Tue=4 Wed=8 Thu=16 Fri=32 Sat=64; weekdays = 62
+
+  // Action
+  actionOn          Boolean @default(true) @map("action_on") // true = turn on, false = turn off
+  brightness        Int? // 1-100
+  kelvin            Int? // 2000-6500, convert to mirek when calling the bridge
+  transitionMinutes Int     @default(0) @map("transition_minutes") // e.g. 30 for a slow wake-up ramp
+
+  @@index([lightId])
+  @@map("routines")
+}
+
+// Manual lock: turning a light on by hand locks it until the reset time; turning it off by hand deletes the row.
+model overrides {
+  lightId     Int      @id @map("light_id")
+  light       lights   @relation(fields: [lightId], references: [id], onDelete: Cascade)
+  lockedUntil DateTime @map("locked_until") @db.Timestamptz(3)
+
+  @@map("overrides")
+}
